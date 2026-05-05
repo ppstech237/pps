@@ -1,116 +1,247 @@
 import subprocess
+import json
+import uuid
+import os
 import re
+from datetime import datetime, timedelta
 
-def _run_script(proto, action, username="", days=""):
-    """Exécute un script panel et retourne sa sortie nettoyée"""
-    if action == "add":
-        cmd = f'echo -e "1\n{username}\n{days}\n" | {proto}'
-    elif action == "renew":
-        cmd = f'echo -e "2\n{username}\n{days}\n" | {proto}'
-    elif action == "del":
-        cmd = f'echo -e "3\n{username}\n" | {proto}'
-    elif action == "list":
-        cmd = f'echo -e "4\n" | {proto}'
-    else:
-        return False, "Action inconnue"
-    
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    output = result.stdout
-    
-    # Nettoyer la sortie
-    lines = output.split('\n')
-    cleaned = []
-    for line in lines:
-        # Supprimer les lignes de menu et d'interaction
-        if "Select menu" in line or "Press any key" in line:
-            continue
-        if "option :" in line.lower() or "input username" in line.lower():
-            continue
-        if "validity (days)" in line.lower() or "enter username" in line.lower():
-            continue
-        if "not found" in line.lower() and "username" in line.lower():
-            continue
-        
-        # Remplacer la ligne de séparation
-        if "●━━━━━━━━━━━━━━━━━━━━ 🜲 PPS_TECH ━━━━━━━━━━━━━━━━━━━━●" in line:
-            cleaned.append("●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●")
-        else:
-            cleaned.append(line)
-    
-    # Nettoyer les lignes vides au début et à la fin
-    while cleaned and not cleaned[0].strip():
-        cleaned.pop(0)
-    while cleaned and not cleaned[-1].strip():
-        cleaned.pop()
-    
-    return True, "\n".join(cleaned)
+XRAY_CONFIG = "/etc/xray/config.json"
+
+def _load_config():
+    if not os.path.exists(XRAY_CONFIG):
+        return None
+    with open(XRAY_CONFIG, 'r') as f:
+        return json.load(f)
+
+def _save_config(cfg):
+    with open(XRAY_CONFIG, 'w') as f:
+        json.dump(cfg, f, indent=2)
+    subprocess.run("systemctl restart xray", shell=True)
 
 def create_xray_account(proto, username, days, created_by_id=None):
-    if proto == "vless":
-        return _run_script("vless", "add", username, days)
-    elif proto == "vmess":
-        return _run_script("vmess", "add", username, days)
+    """Crée un compte Xray directement (sans passer par les menus interactifs)"""
+    
+    # Vérifier si l'utilisateur existe
+    with open(XRAY_CONFIG, 'r') as f:
+        content = f.read()
+    
+    if re.search(rf'(### {username}|\"email\": \"{username}\")', content):
+        return False, f"❌ L'utilisateur <code>{username}</code> existe déjà."
+    
+    # Générer UUID
+    new_uuid = str(uuid.uuid4())
+    expiry = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+    
+    domain = subprocess.getoutput("cat /etc/xray/domain 2>/dev/null || echo 'N/A'")
+    ip = subprocess.getoutput("curl -s ifconfig.me")
+    
+    # Ajouter selon le protocole
+    if proto == "vmess":
+        # Ajouter dans l'inbound vmess (port 23456 ou 2025)
+        sed_cmd = f'''sed -i '/#vmess$/a\\### {username} {expiry} {new_uuid}\n}},{{\n  "id": "{new_uuid}",\n  "alterId": 0,\n  "email": "{username}"\n  #vmess' {XRAY_CONFIG}'''
+        subprocess.run(sed_cmd, shell=True)
+        
+        # Générer les liens
+        ws_tls = f'{{"v":"2","ps":"{username}","add":"{domain}","port":"443","id":"{new_uuid}","aid":"0","net":"ws","path":"/vmess","type":"none","host":"","tls":"tls"}}'
+        ws_nontls = f'{{"v":"2","ps":"{username}","add":"{domain}","port":"80","id":"{new_uuid}","aid":"0","net":"ws","path":"/vmess","type":"none","host":"","tls":"none"}}'
+        grpc = f'{{"v":"2","ps":"{username}","add":"{domain}","port":"443","id":"{new_uuid}","aid":"0","net":"grpc","path":"vmess-grpc","type":"none","host":"","tls":"tls"}}'
+        
+        link_tls = "vmess://" + subprocess.getoutput(f"echo '{ws_tls}' | base64 -w 0")
+        link_nontls = "vmess://" + subprocess.getoutput(f"echo '{ws_nontls}' | base64 -w 0")
+        link_grpc = "vmess://" + subprocess.getoutput(f"echo '{grpc}' | base64 -w 0")
+        
+        output = f"""┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Username    : {username}
+┃ Expiry Date : {expiry}
+┃ UUID        : {new_uuid}
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●
+┃ Domain      : {domain}
+┃ Port TLS    : 443
+┃ Port NonTLS : 80
+┃ Port gRPC   : 443
+┃ alterId     : 0
+┃ Security    : auto
+┃ Network     : ws
+┃ Path        : /vmess
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●
+┃ TLS  :
+┃ {link_tls}
+┃
+┃ NTLS :
+┃ {link_nontls}
+┃
+┃ GRPC :
+┃ {link_grpc}
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●"""
+        
+    elif proto == "vless":
+        sed_cmd = f'''sed -i '/#vless$/a\\  {{\n    "id": "{new_uuid}",\n    "email": "{username}"\n  }},\n#vless' {XRAY_CONFIG}'''
+        subprocess.run(sed_cmd, shell=True)
+        
+        link_tls = f"vless://{new_uuid}@{domain}:443?path=/vless&security=tls&encryption=none&type=ws#{username}"
+        link_nontls = f"vless://{new_uuid}@{domain}:80?path=/vless&encryption=none&type=ws#{username}"
+        link_grpc = f"vless://{new_uuid}@{domain}:443?mode=gun&security=tls&encryption=none&type=grpc&serviceName=vless-grpc#{username}"
+        
+        output = f"""┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Username    : {username}
+┃ Expiry Date : {expiry}
+┃ UUID        : {new_uuid}
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●
+┃ Domain      : {domain}
+┃ Port TLS    : 443
+┃ Port NonTLS : 80
+┃ Port gRPC   : 443
+┃ Security    : auto
+┃ Network     : ws
+┃ Path        : /vless
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●
+┃ TLS  :
+┃ {link_tls}
+┃
+┃ NTLS :
+┃ {link_nontls}
+┃
+┃ GRPC :
+┃ {link_grpc}
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●"""
+    
     elif proto == "trojan":
-        return _run_script("trojan", "add", username, days)
+        sed_cmd = f'''sed -i '/#trojanws$/a\\  {{\n    "password": "{new_uuid}",\n    "email": "{username}"\n  }},\n#trojanws' {XRAY_CONFIG}'''
+        subprocess.run(sed_cmd, shell=True)
+        
+        link_tls = f"trojan://{new_uuid}@{domain}:443?path=/trws&security=tls&type=ws#{username}"
+        link_nontls = f"trojan://{new_uuid}@{domain}:80?path=/trws&type=ws#{username}"
+        link_grpc = f"trojan://{new_uuid}@{domain}:443?mode=gun&security=tls&type=grpc&serviceName=trojan-grpc#{username}"
+        
+        output = f"""┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Username    : {username}
+┃ Expiry Date : {expiry}
+┃ Password    : {new_uuid}
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●
+┃ Domain      : {domain}
+┃ Port TLS    : 443
+┃ Port NonTLS : 80
+┃ Port gRPC   : 443
+┃ Path        : /trws
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●
+┃ TLS  :
+┃ {link_tls}
+┃
+┃ NTLS :
+┃ {link_nontls}
+┃
+┃ GRPC :
+┃ {link_grpc}
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●"""
+    
     elif proto == "socks":
-        return _run_script("socks", "add", username, days)
+        sed_cmd = f'''sed -i '/#ssws$/a\\  {{\n    "method": "aes-128-gcm",\n    "password": "{new_uuid}",\n    "email": "{username}"\n  }},\n#ssws' {XRAY_CONFIG}'''
+        subprocess.run(sed_cmd, shell=True)
+        
+        link = f"ss://aes-128-gcm:{new_uuid}@{domain}:443?path=/ssws&security=tls&type=ws#{username}"
+        
+        output = f"""┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Username    : {username}
+┃ Expiry Date : {expiry}
+┃ Password    : {new_uuid}
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●
+┃ Domain      : {domain}
+┃ Port TLS    : 443
+┃ Port NonTLS : 80
+┃ Path        : /ssws
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●
+┃ Link :
+┃ {link}
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●"""
+    
     else:
         return False, f"❌ Protocole {proto} inconnu"
+    
+    # Redémarrer Xray
+    subprocess.run("systemctl restart xray", shell=True)
+    
+    return True, output
+
 
 def renew_xray_account(proto, username, days):
-    if proto == "vless":
-        return _run_script("vless", "renew", username, days)
-    elif proto == "vmess":
-        return _run_script("vmess", "renew", username, days)
-    elif proto == "trojan":
-        return _run_script("trojan", "renew", username, days)
-    elif proto == "socks":
-        return _run_script("socks", "renew", username, days)
-    else:
-        return False, f"❌ Protocole {proto} inconnu"
+    """Renouvelle un compte Xray"""
+    with open(XRAY_CONFIG, 'r') as f:
+        content = f.read()
+    
+    # Chercher l'utilisateur
+    pattern = rf'### {username} (\d{{4}}-\d{{2}}-\d{{2}}) ([a-f0-9-]+)'
+    match = re.search(pattern, content)
+    if not match:
+        return False, f"❌ Utilisateur <code>{username}</code> introuvable."
+    
+    old_expiry = match.group(1)
+    old_uuid = match.group(2)
+    new_expiry = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+    
+    # Remplacer la date
+    new_content = re.sub(rf'### {username} {old_expiry} {old_uuid}', f'### {username} {new_expiry} {old_uuid}', content)
+    
+    with open(XRAY_CONFIG, 'w') as f:
+        f.write(new_content)
+    
+    subprocess.run("systemctl restart xray", shell=True)
+    
+    return True, f"✅ Compte <code>{username}</code> renouvelé jusqu'au <b>{new_expiry}</b>."
+
 
 def delete_xray_account(proto, username):
-    if proto == "vless":
-        return _run_script("vless", "del", username)
-    elif proto == "vmess":
-        return _run_script("vmess", "del", username)
-    elif proto == "trojan":
-        return _run_script("trojan", "del", username)
-    elif proto == "socks":
-        return _run_script("socks", "del", username)
-    else:
-        return False, f"❌ Protocole {proto} inconnu"
+    """Supprime un compte Xray"""
+    with open(XRAY_CONFIG, 'r') as f:
+        content = f.read()
+    
+    # Supprimer le bloc de l'utilisateur
+    pattern = rf'(?s)### {username} \d{{4}}-\d{{2}}-\d{{2}} [a-f0-9-]+.*?\n(?=###|}}|#|$)'
+    new_content = re.sub(pattern, '', content)
+    
+    if new_content == content:
+        pattern = rf'"email": "{username}".*?\n(.*?)\n'
+        new_content = re.sub(pattern, '', content)
+    
+    with open(XRAY_CONFIG, 'w') as f:
+        f.write(new_content)
+    
+    subprocess.run("systemctl restart xray", shell=True)
+    
+    return True, f"✅ Compte <code>{username}</code> supprimé."
+
 
 def get_xray_usernames(proto):
-    success, output = _run_script(proto, "list")
-    if not success:
-        return []
-    # Extraire les noms d'utilisateurs de la liste
-    users = []
-    for line in output.split('\n'):
-        # Chercher les lignes qui contiennent des noms d'utilisateurs
-        match = re.search(r'┃\s*([a-zA-Z0-9_-]+)\s+\d{4}-\d{2}-\d{2}', line)
-        if match:
-            users.append(match.group(1))
-    return users
+    """Liste les noms d'utilisateurs Xray"""
+    with open(XRAY_CONFIG, 'r') as f:
+        content = f.read()
+    
+    users = re.findall(r'### ([a-zA-Z0-9_-]+) \d{4}-\d{2}-\d{2} [a-f0-9-]+', content)
+    users += re.findall(r'"email": "([a-zA-Z0-9_-]+)"', content)
+    
+    return list(set(users))
+
 
 def get_xray_account_details(proto, username):
-    # Pour les détails, le mieux est d'utiliser l'option 4 (view) du panel
-    cmd = f'echo -e "4\n{username}\n" | {proto}'
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    output = result.stdout
+    """Affiche les détails d'un compte Xray"""
+    with open(XRAY_CONFIG, 'r') as f:
+        content = f.read()
     
-    # Nettoyer comme avant
-    lines = output.split('\n')
-    cleaned = []
-    for line in lines:
-        if "Select menu" in line or "Press any key" in line:
-            continue
-        if "option :" in line.lower():
-            continue
-        if "●━━━━━━━━━━━━━━━━━━━━ 🜲 PPS_TECH ━━━━━━━━━━━━━━━━━━━━●" in line:
-            cleaned.append("●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●")
-        else:
-            cleaned.append(line)
+    pattern = rf'### {username} (\d{{4}}-\d{{2}}-\d{{2}}) ([a-f0-9-]+)'
+    match = re.search(pattern, content)
     
-    return True, "\n".join(cleaned)
+    if match:
+        expiry = match.group(1)
+        uuid_val = match.group(2)
+        
+        return True, f"""┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Username    : {username}
+┃ Expiry Date : {expiry}
+┃ UUID        : {uuid_val}
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━●"""
+    
+    return False, f"❌ Utilisateur <code>{username}</code> introuvable."
