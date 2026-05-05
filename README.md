@@ -1,0 +1,113 @@
+# 🜲 PPS_TECH 
+
+- 🜲 PPS_TECH TUNNEL is — Free Script
+This script is provided free of charge and may be used without a license or domain/IP registration. It is intended for testing purposes only. The author and distributor accept no responsibility for losses, damages, or legal issues arising from its use. Use at your own risk.
+
+### TELEGRAM
+- https://t.me/ppssurf
+
+## Default Ports
+
+| Service  | Transport |   TLS       |   NTLS      |
+|----------|-----------|-------------|-------------|
+| VLESS    | gRPC      | 443         | -           |
+| VLESS    | WebSocket | 443         | 80          |
+| VMESS    | gRPC      | 443         | -           |
+| VMESS    | WebSocket | 443         | 80          |
+| Trojan   | gRPC      | 443         | -           |
+| Trojan   | WebSocket | 443         | 80          |
+| SOCKS    | gRPC      | 443         | -           |
+| SOCKS    | WebSocket | 443         | 80          |
+| SSH      | WebSocket | 443         | 80          |
+| SQUID    | -         | 3128, 8080  | -           |
+| OpenVPN  | TCP/UDP   | 1194        | 2200        |
+| OHP      | TCP       | -           | 8000        |
+| ZIVPN    | UDP       | 5667        | 5667        |
+| SLDNS    | -         | ALL PORT    | ALL PORT    |
+
+
+## Custom path or NO path info 
+- Allow configuration of custom paths or no path only for the following ports:
+  
+| Protocol | Type | Port |     Custom Path    |   Multi-Path Support   |
+| -------- | ---- | ---- | ------------------ | -----------------------|
+| VMESS    | TLS  | 2083 | / or `/<anytext>`  |  ✅ Yes `/<any>/<any>`   |
+| VMESS    | NTLS | 2082 | / or `/<anytext>`  |  ✅ Yes `/<any>/<any>`   |
+| VLESS    | TLS  | 2087 | / or `/<anytext>`  |  ✅ Yes `/<any>/<any>`   |
+| VLESS    | NTLS | 2086 | / or `/<anytext>`  |  ✅ Yes `/<any>/<any>`   |
+
+## Protocols & Multi-Path Support (WebSocket TLS & Non-TLS)
+
+| Protocol       | Example Path       | Port TLS/NTLS  |   Multi-Path Support    |
+|----------------|--------------------|----------------|-------------------------|
+| **VMess (WS)** |      `/vmess`      |   443/80       | ⚠️ Partial (some port) |
+| **VLESS (WS)** |      `/vless`      |   443/80       | ⚠️ Partial (some port) |
+| **Trojan (WS)**|      `/trws`       |   443/80       | ⚠️ Partial (some port) |
+| **Socks (WS)** |      `/ssws`       |   443/80       | ⚠️ Partial (some port) |
+| **SSH (WS)**   |      `/<anypath>`  |   443/80       | ✅ Yes                 |
+
+
+
+## Info:  
+- ✅ All working: The tunnel works fully without issues.  
+- ⚠️ Partial: Some features (e.g., SSH over WebSocket) may not work properly.  
+
+## Ubuntu:
+- 20 ✅ All working
+- 22 ✅ All working
+- 24 ✅ All working
+
+## Debian:
+- 10 ✅ All working
+- 11 ✅ All working
+- 12 ✅ All working
+
+## Installation
+ 
+<pre>
+<code>wget -O /root/pps.sh https://raw.githubusercontent.com/ppstech237/pps/main/pps.sh && chmod +x /root/pps.sh && /root/pps.sh</code>
+</pre>
+
+## OS REINSTALL
+<pre><code>curl -O https://raw.githubusercontent.com/ppstech237/reOS/main/reinstall.sh && bash reinstall.sh Debian 10</code></pre>
+
+### Known Bugs (will fix later, too lazy now ☑️)
+- Active user count for Xray (VLESS, VMess, Trojan, SOCKS) not displayed correctly
+- Automatic deletion of expired accounts not working
+ 
+## Changelog
+
+### 📅 [2025-04-24]
+- Initial script release
+
+### 📅 [2025-04-24]
+- Added support for custom multipath
+- Fixed gRPC connection issues
+- Updated Nginx configuration (single file)
+- Fixed issue where user data could not be saved to JSON file
+- Added automatic blocking of torrent sites (BitTorrent traffic, trackers, etc.)  
+- Added automatic blocking of adult (pornographic) sites  
+- Added ad-blocking functionality (ads, popups, tracking scripts)
+- Add new ports for VMESS & VLESS.
+- Support custom paths or no path for a specific port.
+- Remove NetGuard, Use Default host blocker
+- Remove Xray multi-path on ports 443 and 80
+- Added OpenVPN support (TCP / UDP / SSL)
+- Added Squid Proxy (3128 / 8080)
+- Added OHP (Open HTTP Puncher) over TCP
+
+### 📅 [2025-04-27]
+- Added support for ZIVPN panel
+- Added support for SlowDNS 
+- Fixed bug in SSH WebSocket
+- Fixed bug in SlowDNS
+- Added support for UDP Custom
+- Added auto delete expiry account
+- Fix Stunnel5
+- Fix Dropbear
+- Fix ZiVpn
+- Upgrade XRAY (Xray-Core-v25.10.15.3)
+- Debugging My Lazy Brain.👍
+- Fix SSH WebSocket (support lates os)
+
+BY 🜲 PPS_TECH 
